@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Visor 3D</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Visor 3D"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#12151b">
+<style>
+:root{--bg:#f4f5f7;--pn:#fff;--tx:#1d2330;--mu:#6b7280;--bd:#d9dce3;--ac:#2563eb;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12151b;--pn:#1c212b;--tx:#e6e9ef;--mu:#9aa3b2;--bd:#2f3644;--ac:#5b8cff;color-scheme:dark}}
+html,body{height:100%;margin:0}body{height:100dvh}canvas{touch-action:none}
+body{background:var(--bg);color:var(--tx);font:14px system-ui,-apple-system,"Segoe UI",sans-serif;display:flex}
+#side{width:310px;background:var(--pn);border-right:1px solid var(--bd);padding:12px;overflow:auto;box-sizing:border-box;flex:none}
+#view{flex:1;position:relative;min-width:0}
+canvas{display:block;width:100%;height:100%}
+h1{font-size:16px;margin:0 0 8px}
+button,.btn{background:var(--ac);color:#fff;border:0;border-radius:6px;padding:7px 10px;cursor:pointer;font:inherit}
+button.sec{background:transparent;color:var(--tx);border:1px solid var(--bd)}
+button.on{outline:2px solid var(--ac)}
+.row{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.item{border:1px solid var(--bd);border-radius:8px;padding:8px;margin:6px 0}
+.item .t{display:flex;align-items:center;gap:6px;font-weight:600;word-break:break-all}
+.item .c{display:flex;align-items:center;gap:6px;margin-top:6px;color:var(--mu);font-size:12px}
+.item input[type=range]{flex:1}
+.mi{display:flex;justify-content:space-between;align-items:center;font-size:12px;cursor:default}.mi.sel{outline:2px solid var(--ac)}
+.sec-t{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--mu);margin:16px 0 8px;padding-top:12px;border-top:1px solid var(--bd)}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.grid3 button{padding:8px 4px;font-size:12px}
+.full{width:100%;margin-top:6px;font-size:12px}.opt{display:flex;align-items:center;gap:8px;margin:8px 0 2px;font-size:13px}
+button.sec.on{background:var(--ac);color:#fff;border-color:var(--ac);outline:0}
+.btn{display:block;text-align:center}
+.lr{display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0}.lr span{width:62px}.lr input{flex:1}
+#msg{color:var(--mu);font-size:12px;margin:6px 0}
+#err{color:#dc2626;font-size:13px;margin:6px 0}
+#drop{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(37,99,235,.25);font-size:20px;color:#fff;pointer-events:none}
+#meas{position:absolute;left:10px;bottom:10px;background:var(--pn);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;display:none}
+@media(max-width:700px){body{flex-direction:column-reverse}#side{width:auto;height:42%;border-right:0;border-top:1px solid var(--bd)}}
+</style></head><body>
+<div id="side">
+<h1>Visor 3D quirúrgico</h1>
+<label class="btn">Abrir ZIP<input id="file" type="file" hidden></label>
+<span id="msg">o arrastra un .zip sobre el visor</span>
+<button class="sec full" id="close">Cerrar caso (liberar memoria)</button><div id="err"></div>
+<div class="sec-t">Herramientas de medida</div>
+<div class="grid3"><button class="sec" id="m-dist">Distancia</button><button class="sec" id="m-plane">Áng. planos</button><button class="sec" id="m-line">Áng. líneas</button></div>
+<label class="opt"><input type="checkbox" id="t-lines" checked>Mostrar líneas de medida</label>
+<label class="opt"><input type="checkbox" id="t-lbl" checked>Mostrar valores en el modelo</label>
+<button class="sec full" id="m-clr">Borrar todas las mediciones</button>
+<div class="sec-t">Iluminación</div>
+<label class="lr"><span>Luz</span><input type="range" id="l-int" min="0" max="150" value="100"></label>
+<label class="lr"><span>Reflejos</span><input type="range" id="l-spec" min="0" max="100" value="100"></label>
+<div class="sec-t">Modelos</div>
+<div class="grid3"><button class="sec" id="all">Mostrar todo</button><button class="sec" id="none">Ocultar todo</button><button class="sec" id="fit">Encuadrar</button></div>
+<div id="list"></div>
+<div class="sec-t">Mediciones realizadas</div>
+<div id="mlist"></div>
+</div>
+<div id="view"><div id="drop">Suelta el ZIP aquí</div><div id="meas"></div></div>
+
+<script src="lib/three.min.js"></script>
+<script src="lib/OrbitControls.js"></script>
+<script src="lib/PLYLoader.js"></script>
+<script src="lib/STLLoader.js"></script>
+<script src="lib/MTLLoader.js"></script>
+<script src="lib/OBJLoader.js"></script>
+<script src="lib/jszip.min.js"></script>
+<script>
+const $=id=>document.getElementById(id), view=$('view');
+THREE.Object3D.DefaultUp.set(0,0,1); // Z hacia arriba (convención médica / Materialise)
+const scene=new THREE.Scene(), camera=new THREE.PerspectiveCamera(45,1,0.1,100000);
+camera.position.set(0,-400,150);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+view.appendChild(renderer.domElement);
+const controls=new THREE.OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;
+const hl=new THREE.HemisphereLight(0xffffff,0x555566,0.8);scene.add(hl);
+const dl=new THREE.DirectionalLight(0xffffff,0.8); camera.add(dl); scene.add(camera);
+function applyLight(){const k=$('l-int').value/100;hl.intensity=0.8*k;dl.intensity=0.8*k}
+function applySpec(){const k=$('l-spec').value/100;models.forEach(m=>m.mats.forEach(x=>{if(!x.specular)return;if(!x.userData.sp0)x.userData.sp0=x.specular.clone();x.specular.copy(x.userData.sp0).multiplyScalar(k)}))}
+const root=new THREE.Group(); scene.add(root);
+const measG=new THREE.Group(); scene.add(measG);
+const models=[];
+function bg(){const d=matchMedia('(prefers-color-scheme: dark)').matches;scene.background=new THREE.Color(d?0x0c0e13:0xdfe3ea)}
+bg();
+function resize(){const w=view.clientWidth,h=view.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix()}
+addEventListener('resize',resize);resize();
+(function loop(){requestAnimationFrame(loop);controls.update();const sl=$('t-lines').checked,sb=$('t-lbl').checked;measG.children.forEach(o=>o.visible=o.isSprite?sb:sl);renderer.render(scene,camera)})();
+
+const err=m=>$('err').textContent=m||'';
+const base=p=>p.split('/').pop();
+function mkMat(g){
+  const vc=!!g.attributes.color;
+  if(!g.attributes.normal)g.computeVertexNormals();
+  return new THREE.MeshPhongMaterial({color:vc?0xffffff:0x9fb4cc,vertexColors:vc,side:THREE.DoubleSide,shininess:30,flatShading:false});
+}
+function addModel(name,obj,kind){
+  const mats=new Set();
+  obj.traverse(o=>{if(o.isMesh)[].concat(o.material).forEach(m=>{m.side=THREE.DoubleSide;mats.add(m)})});
+  const m={name,obj,kind,mats:[...mats]};
+  root.add(obj);models.push(m);addRow(m);applySpec();
+}
+function addRow(m){
+  const d=document.createElement('div');d.className='item';
+  const col=m.kind==='stl'?'<input type="color" value="#9fb4cc" title="Color (STL)"><button class="sec" title="Restaurar color original" style="padding:2px 6px">↺</button>':'<span>color original</span>';
+  d.innerHTML='<div class="t"><input type="checkbox" checked><span>'+m.name.replace(/</g,'&lt;')+'</span></div><div class="c">Opacidad<input type="range" min="0" max="100" value="100"></div><div class="c">'+col+'</div>';
+  const [cb,rg]=[d.querySelector('input[type=checkbox]'),d.querySelector('input[type=range]')];
+  cb.onchange=()=>m.obj.visible=cb.checked;
+  rg.oninput=()=>{const o=rg.value/100;m.mats.forEach(x=>{x.transparent=o<1;x.opacity=o;x.depthWrite=o>=1;x.needsUpdate=true})};
+  if(m.kind==='stl'){
+    const ci=d.querySelector('input[type=color]'),rs=d.querySelector('button');
+    m.orig=m.mats.map(x=>[x.vertexColors,x.color.getHex()]);
+    ci.oninput=()=>m.mats.forEach(x=>{x.vertexColors=false;x.color.set(ci.value);x.needsUpdate=true});
+    rs.onclick=()=>m.mats.forEach((x,i)=>{x.vertexColors=m.orig[i][0];x.color.setHex(m.orig[i][1]);x.needsUpdate=true});
+  }
+  m.cb=cb;$('list').appendChild(d);
+}
+function clearAll(){
+  models.forEach(m=>m.obj.traverse(o=>{if(o.geometry)o.geometry.dispose()}));
+  models.length=0;root.clear();$('list').innerHTML='';clearMeas();
+}
+function fit(){
+  const b=new THREE.Box3().setFromObject(root);if(b.isEmpty())return;
+  const c=b.getCenter(new THREE.Vector3()),r=b.getSize(new THREE.Vector3()).length()/2||100;
+  controls.target.copy(c);camera.position.set(c.x,c.y-r*2.4,c.z+r*0.5);
+  camera.near=r/200;camera.far=r*50;camera.updateProjectionMatrix();controls.update();
+}
+async function loadZip(data){
+  err('');clearAll();$('msg').textContent='Leyendo ZIP…';
+  let zip;try{zip=await JSZip.loadAsync(data)}catch(e){err('No se pudo abrir el ZIP: '+e.message);return}
+  const files=Object.values(zip.files).filter(f=>!f.dir&&!/(^|\/)(__MACOSX|\.)/.test(f.name));
+  const find=n=>files.find(f=>base(f.name).toLowerCase()===n.toLowerCase());
+  let ok=0,skip=0;
+  for(const f of files){
+    const ext=f.name.split('.').pop().toLowerCase();
+    try{
+      if(ext==='ply'){
+        const g=new THREE.PLYLoader().parse(await f.async('arraybuffer'));
+        addModel(base(f.name),new THREE.Mesh(g,mkMat(g)),'ply');ok++;
+      }else if(ext==='stl'){
+        const g=new THREE.STLLoader().parse(await f.async('arraybuffer'));
+        addModel(base(f.name),new THREE.Mesh(g,mkMat(g)),'stl');ok++;
+      }else if(ext==='obj'){
+        const txt=await f.async('string'),ol=new THREE.OBJLoader();
+        const mt=txt.match(/^mtllib\s+(.+?)\s*$/m),mf=mt&&find(base(mt[1]));
+        if(mf){
+          const mtl=(await mf.async('string')).replace(/^\s*(map_|bump|disp|decal).*$/gim,'');
+          const mm=new THREE.MTLLoader().parse(mtl,'');mm.preload();ol.setMaterials(mm);
+        }
+        const o=ol.parse(txt);
+        o.traverse(x=>{if(x.isMesh){if(!x.geometry.attributes.normal)x.geometry.computeVertexNormals();
+          if(x.geometry.attributes.color)[].concat(x.material).forEach(m=>m.vertexColors=true);
+          if(!mf&&!x.geometry.attributes.color)x.material=new THREE.MeshPhongMaterial({color:0x9fb4cc})}});
+        addModel(base(f.name),o,'obj');ok++;
+      }else if(ext!=='mtl')skip++;
+    }catch(e){err((err.t=($('err').textContent?$('err').textContent+'\n':'')+'Error en '+f.name+': '+e.message)||'')}
+  }
+  $('msg').textContent=ok+' modelo(s) cargado(s)'+(skip?', '+skip+' archivo(s) ignorado(s)':'');
+  if(!ok)err('El ZIP no contiene archivos PLY, STL u OBJ.');
+  fit();
+}
+$('file').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)f.arrayBuffer().then(loadZip)};
+$('close').onclick=()=>{clearAll();err('');$('msg').textContent='Caso cerrado: memoria liberada.'};
+['dragover','dragenter'].forEach(t=>view.addEventListener(t,e=>{e.preventDefault();$('drop').style.display='flex'}));
+['dragleave','drop'].forEach(t=>view.addEventListener(t,e=>{e.preventDefault();$('drop').style.display='none'}));
+view.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)f.arrayBuffer().then(loadZip)});
+$('all').onclick=()=>models.forEach(m=>{m.obj.visible=true;m.cb.checked=true});
+$('none').onclick=()=>models.forEach(m=>{m.obj.visible=false;m.cb.checked=false});
+$('fit').onclick=fit;
+
+// Mediciones: distancia, ángulo entre planos (triángulos) y ángulo entre líneas
+let mode=null,tmp=[],sel=[],cnt={d:0,p:0,a:0};
+const meas=[],ray=new THREE.Raycaster(),RED=0xff3b30,YEL=0xffd60a;
+const dim=()=>new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3()).length();
+const ang=(a,b)=>THREE.MathUtils.radToDeg(Math.acos(Math.min(1,Math.abs(a.dot(b)))));
+const fmt=a=>a.toFixed(1)+'° (suplementario '+(180-a).toFixed(1)+'°)';
+function label(t,pos){
+  const c=document.createElement('canvas'),x=c.getContext('2d'),f=48,F='bold '+f+'px system-ui,sans-serif';
+  x.font=F;c.width=Math.ceil(x.measureText(t).width)+24;c.height=f+20;
+  x.font=F;x.fillStyle='rgba(20,20,20,.85)';x.fillRect(0,0,c.width,c.height);
+  x.fillStyle='#fff';x.textBaseline='middle';x.fillText(t,12,c.height/2);
+  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false,transparent:true})),h=dim()/75;
+  s.scale.set(h*c.width/c.height,h,1);s.position.copy(pos);s.renderOrder=10;measG.add(s);return s;
+}
+function near(m,n){
+  const d1=m.b.clone().sub(m.a),d2=n.b.clone().sub(n.a),r=m.a.clone().sub(n.a);
+  const a=d1.dot(d1),b=d1.dot(d2),c=d2.dot(d2),d=d1.dot(r),e=d2.dot(r),k=a*c-b*b,cl=v=>Math.min(1,Math.max(0,v));
+  let s=k>1e-9?cl((b*e-c*d)/k):0,t=cl((b*s+e)/c);s=cl((b*t-d)/a);
+  return m.a.clone().addScaledVector(d1,s).add(n.a.clone().addScaledVector(d2,t)).multiplyScalar(.5);
+}
+function hint(t){$('meas').style.display='block';$('meas').textContent=t}
+function clearMeas(){measG.clear();meas.length=0;tmp=[];sel=[];cnt={d:0,p:0,a:0};renderList();if(!mode)$('meas').style.display='none'}
+function setMode(m){
+  mode=mode===m?null:m;
+  tmp.forEach(t=>measG.remove(t.o));tmp=[];selReset();
+  ['dist','plane','line'].forEach(k=>$('m-'+k).classList.toggle('on',mode===k));
+  const h={dist:'Distancia: clic en dos puntos del modelo',plane:'Planos: clic en un triángulo y después en otro',line:'Líneas: elige dos distancias en la lista de mediciones'};
+  if(mode)hint(h[mode]);else $('meas').style.display='none';
+  renderList();
+}
+function selReset(){sel.forEach(m=>m.line&&m.line.material.color.setHex(RED));sel=[]}
+function renderList(){
+  const L=$('mlist');L.innerHTML='';
+  meas.forEach((m,i)=>{
+    const d=document.createElement('div');d.className='item mi'+(sel.includes(m)?' sel':'');
+    d.innerHTML='<span>'+m.txt+'</span><button class="sec" style="padding:2px 6px">✕</button>';
+    d.querySelector('button').onclick=e=>{e.stopPropagation();m.objs.forEach(o=>measG.remove(o));meas.splice(i,1);sel=sel.filter(x=>x!==m);renderList()};
+    if(mode==='line'&&m.t==='dist')d.onclick=()=>pickLine(m);
+    L.appendChild(d);
+  });
+}
+function pickLine(m){
+  if(sel.includes(m)){sel=sel.filter(x=>x!==m);m.line.material.color.setHex(RED);renderList();return}
+  sel.push(m);m.line.material.color.setHex(YEL);
+  if(sel.length===2){
+    const a=ang(sel[0].dir,sel[1].dir),t='∠ '+sel[0].id+'–'+sel[1].id+': '+fmt(a);
+    const lb=label(a.toFixed(1)+'°',near(sel[0],sel[1]));
+    meas.push({t:'lang',txt:t,objs:[lb]});hint(t);selReset();
+  }
+  renderList();
+}
+let down=null;
+renderer.domElement.addEventListener('pointerdown',e=>down=[e.clientX,e.clientY]);
+renderer.domElement.addEventListener('pointerup',e=>{
+  if(!mode||mode==='line'||!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;
+  const r=renderer.domElement.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1),camera);
+  const hit=ray.intersectObjects(root.children.filter(o=>o.visible),true)[0];if(!hit)return;
+  const p=hit.point.clone(),S=dim();
+  if(mode==='dist'){
+    const s=new THREE.Mesh(new THREE.SphereGeometry(S/250,12,12),new THREE.MeshBasicMaterial({color:RED,depthTest:false}));
+    s.position.copy(p);s.renderOrder=9;measG.add(s);tmp.push({p,o:s});
+    if(tmp.length===1){hint('Clic en el segundo punto');return}
+    const [A,B]=tmp,g=new THREE.BufferGeometry().setFromPoints([A.p,B.p]);
+    const line=new THREE.Line(g,new THREE.LineBasicMaterial({color:RED,depthTest:false}));line.renderOrder=9;measG.add(line);
+    const len=A.p.distanceTo(B.p),id='D'+(++cnt.d);
+    const lb=label(len.toFixed(2)+' mm',A.p.clone().add(B.p).multiplyScalar(.5));
+    meas.push({t:'dist',id,a:A.p,b:B.p,dir:B.p.clone().sub(A.p).normalize(),line,objs:[A.o,B.o,line,lb],txt:id+': '+len.toFixed(2)+' mm'});
+    hint(id+': '+len.toFixed(2)+' mm');tmp=[];renderList();
+  }else{
+    const n=hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    const disc=new THREE.Mesh(new THREE.PlaneGeometry(S/6,S/6),new THREE.MeshBasicMaterial({color:tmp.length?0x30d158:0xff9f0a,transparent:true,opacity:.45,side:THREE.DoubleSide,depthTest:false}));
+    disc.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),n);disc.position.copy(p).addScaledVector(n,S/2000);disc.renderOrder=8;measG.add(disc);
+    tmp.push({n,o:disc});
+    if(tmp.length===1){hint('Clic en el triángulo del segundo plano');return}
+    const a=ang(tmp[0].n,tmp[1].n),t='Planos P'+(++cnt.p)+': '+fmt(a);
+    const P1=tmp[0].o.position,P2=tmp[1].o.position;
+    const cl=new THREE.Line(new THREE.BufferGeometry().setFromPoints([P1,P2]),new THREE.LineBasicMaterial({color:0xffffff,depthTest:false}));cl.renderOrder=9;measG.add(cl);
+    const lb=label(a.toFixed(1)+'°',P1.clone().add(P2).multiplyScalar(.5));
+    meas.push({t:'plane',txt:t,objs:[tmp[0].o,tmp[1].o,cl,lb]});hint(t);tmp=[];renderList();
+  }
+});
+$('m-dist').onclick=()=>setMode('dist');$('m-plane').onclick=()=>setMode('plane');$('m-line').onclick=()=>setMode('line');
+$('m-clr').onclick=clearMeas;
+$('l-int').oninput=applyLight;$('l-spec').oninput=applySpec;
+// Integración: visor.html?zip=/ruta/al/caso.zip (mismo origen o con CORS)
+const q=new URLSearchParams(location.search).get('zip');
+if(q)fetch(q).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.arrayBuffer()}).then(loadZip).catch(e=>err('No se pudo descargar el ZIP: '+e.message));
+
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+  navigator.serviceWorker.addEventListener('message',e=>{if(e.data&&e.data.sharedFile)e.data.sharedFile.arrayBuffer().then(loadZip)});
+  if(new URLSearchParams(location.search).has('share'))navigator.serviceWorker.ready.then(r=>r.active.postMessage('getShared'));
+}
+</script></body></html>
